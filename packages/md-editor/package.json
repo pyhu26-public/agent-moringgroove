@@ -1,0 +1,33 @@
+{
+  "name": "md-editor",
+  "version": "0.1.0",
+  "description": "Obsidian-style Markdown editor: CodeMirror 6 with Live Preview / Source modes, Reading view, [[wikilinks]]. Framework-agnostic.",
+  "type": "module",
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./style.css": "./src/md-editor.css"
+  },
+  "files": ["src", "dist", "demo", "README.md"],
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --format=esm --splitting --minify --outdir=dist && cp src/md-editor.css dist/md-editor.css",
+    "demo": "npm run build && node demo/serve.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.14",
+    "@lezer/highlight": "^1.2.5",
+    "dompurify": "^3.4.16",
+    "marked": "^18.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "license": "MIT"
+}

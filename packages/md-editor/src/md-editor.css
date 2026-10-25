@@ -1,0 +1,35 @@
+/* md-editor default styles. Optional: the editor itself falls back to your app's variables
+   (--bg --fg --acc --h --mut --code --ok --panel2) and finally to built-in colors.
+   Override anything with --md-* variables, e.g.  .my-card { --md-accent: #e11d48; } */
+:where(:root) {
+  --md-bg: #ffffff; --md-fg: #1b1e27; --md-accent: #2563eb; --md-heading: #111827; --md-muted: #667085;
+  --md-code: #c2410c; --md-ok: #15803d; --md-panel: #f3f4f8; --md-panel2: #eef0f5; --md-line: #d9dde7;
+}
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"])) { --md-bg: #0f1115; --md-fg: #e6e8ee; --md-accent: #6ea8ff; --md-heading: #f3f5fb; --md-muted: #8b92a5; --md-code: #ffb454; --md-ok: #5fd18a; --md-panel: #161922; --md-panel2: #1d212c; --md-line: #2a2f3d; }
+}
+:where(:root[data-theme="dark"]) { --md-bg: #0f1115; --md-fg: #e6e8ee; --md-accent: #6ea8ff; --md-heading: #f3f5fb; --md-muted: #8b92a5; --md-code: #ffb454; --md-ok: #5fd18a; --md-panel: #161922; --md-panel2: #1d212c; --md-line: #2a2f3d; }
+
+/* pane = toolbar + editor + reading view */
+.md-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--md-bg, #fff); color: var(--md-fg, #1b1e27); }
+.md-pane-bar { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--md-line, #d9dde7); background: var(--md-panel, #f3f4f8); }
+.md-pane-seg { display: flex; }
+.md-pane button { font: inherit; font-size: 12px; padding: 3px 10px; cursor: pointer; color: inherit; background: var(--md-panel2, #eef0f5); border: 1px solid var(--md-line, #d9dde7); }
+.md-pane-seg button { border-radius: 0; } .md-pane-seg button:first-child { border-radius: 6px 0 0 6px; } .md-pane-seg button:last-child { border-radius: 0 6px 6px 0; }
+.md-pane-seg button.on { background: var(--md-accent, #2563eb); border-color: var(--md-accent, #2563eb); color: #fff; }
+.md-pane-save { border-radius: 6px; } .md-pane-save.dirty::after { content: ' ●'; color: #f5a524; }
+.md-pane-editor { flex: 1; min-height: 0; overflow: hidden; } .md-pane-editor .cm-editor { height: 100%; }
+.md-pane-reading { flex: 1; overflow: auto; padding: 14px 22px; }
+[hidden] { display: none !important; }
+
+/* rendered Markdown (reading view): add class "md" to any container that holds renderMarkdown() output */
+.md { line-height: 1.75; max-width: 860px; margin: 0 auto; width: 100%; }
+.md h1, .md h2, .md h3, .md h4 { color: var(--md-heading, #111827); line-height: 1.35; margin: 1.3em 0 .5em; }
+.md h1 { font-size: 1.9em; } .md h2 { font-size: 1.5em; border-bottom: 1px solid var(--md-line, #d9dde7); padding-bottom: .2em; } .md h3 { font-size: 1.25em; }
+.md a { color: var(--md-accent, #2563eb); } .md a.wikilink { text-decoration: underline dotted; }
+.md code { background: var(--md-panel2, #eef0f5); padding: 1px 5px; border-radius: 4px; font: .9em ui-monospace, Menlo, monospace; color: var(--md-code, #c2410c); }
+.md pre { background: var(--md-panel2, #eef0f5); padding: 10px 12px; border-radius: 8px; overflow: auto; } .md pre code { padding: 0; background: none; color: inherit; }
+.md blockquote { margin: .8em 0; padding: .1em 1em; border-left: 3px solid var(--md-accent, #2563eb); color: var(--md-muted, #667085); }
+.md table { border-collapse: collapse; } .md th, .md td { border: 1px solid var(--md-line, #d9dde7); padding: 5px 10px; }
+.md img { max-width: 100%; } .md hr { border: 0; border-top: 1px solid var(--md-line, #d9dde7); }
+.md li:has(> input[type=checkbox]) { list-style: none; } .md input[type=checkbox] { margin-right: 6px; }

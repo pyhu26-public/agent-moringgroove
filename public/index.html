@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Moringgroove</title>
+<script>
+  try { var t = localStorage.getItem('theme'); document.documentElement.dataset.theme = t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch (e) { document.documentElement.dataset.theme = 'light'; }
+</script>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <b>Agent Moringgroove</b>
+  <span id="plat" class="muted"></span>
+  <span class="spacer"></span>
+  <span id="fullbadge" class="badge warn" hidden title="이 폴더 에이전트는 모든 권한으로 실행됩니다">전체 권한</span>
+  <div id="usage" class="usage" title="Claude 사용 한도"><span class="muted">한도 확인 중…</span></div>
+  <button id="usageRefresh" class="icon" title="한도 새로고침 (작은 요청 1회 사용)">↻</button>
+  <button id="themeBtn" class="icon" title="다크/라이트 전환">◐</button>
+</header>
+<main id="main">
+  <aside id="left">
+    <div id="ltabs" class="lt"><button data-lt="folders" class="on">폴더</button><button data-lt="favs">★ 즐겨찾기</button></div>
+    <div class="bar" id="rootBar"><button id="addRoot">＋ 루트 폴더</button></div>
+    <div id="tree"></div>
+    <div id="favs" hidden></div>
+    <div class="bar foot">
+      <button id="cliBtn" class="primary" disabled>CLI로 보기 (0)</button>
+    </div>
+  </aside>
+  <div class="split" id="sp1" title="드래그: 폭 조절 · 더블클릭: 초기화"></div>
+  <section id="center">
+    <nav id="tabs">
+      <button data-tab="graph" class="on">지식그래프</button>
+      <button data-tab="agent">에이전트</button>
+      <button data-tab="tools">MCP · 스킬</button>
+      <button data-tab="term">터미널</button>
+      <span class="spacer"></span><span id="folderName" class="muted"></span>
+    </nav>
+    <div id="pane-graph" class="pane on">
+      <div id="graphEmpty" class="empty"></div>
+      <div id="graph"></div>
+      <form id="newDoc" class="newdoc" hidden><input id="newDocName" placeholder="새 문서 이름 (예: 기획/개요)"><button class="sm primary">만들기</button></form>
+      <button id="newDocBtn" class="sm newdocbtn" hidden>＋ 새 문서</button>
+      <div id="docView" hidden>
+        <div id="docHandle" class="dhandle" title="드래그: 폭 조절 · 더블클릭: 초기화"></div>
+        <div class="dhead">
+          <div class="dtitle"><b id="docTitle"></b><span id="docPath" class="muted"></span></div>
+          <div class="seg" id="docModes"><button data-m="live">라이브 프리뷰</button><button data-m="source">소스</button><button data-m="read">읽기</button></div>
+          <button id="docSave" class="sm primary" title="저장 (Ctrl/Cmd+S)">저장</button>
+          <button id="docAsk" class="sm" title="이 문서로 에이전트에게 질문">질문</button>
+          <button id="docMax" class="sm" title="넓게/좁게">⤢</button>
+          <button id="docClose" class="sm" title="닫기">✕</button>
+        </div>
+        <div id="editorHost"></div>
+        <div id="reading" class="md" hidden></div>
+      </div>
+    </div>
+    <div id="pane-agent" class="pane"></div>
+    <div id="pane-tools" class="pane"></div>
+    <div id="pane-term" class="pane"></div>
+  </section>
+  <div class="split" id="sp2" title="드래그: 폭 조절 · 더블클릭: 초기화"></div>
+  <aside id="right">
+    <div class="bar"><b id="chatTitle">대화</b><select id="agentSel" class="agentsel" hidden title="이 폴더의 에이전트 전환"></select><button id="agentAdd" class="sm" title="이 폴더에 에이전트 추가" disabled>＋</button><span class="spacer"></span>
+      <button id="recMcp" title="MCP 추천 에이전트" disabled>MCP 추천</button>
+      <button id="recSkill" title="스킬 추천 에이전트" disabled>스킬 추천</button>
+      <button id="cliOne" disabled>CLI로 보기</button>
+    </div>
+    <div id="chatMeta" class="chatmeta"></div>
+    <div id="chat"></div>
+    <form id="chatForm"><div id="slashPop" class="slashpop" hidden></div><textarea id="chatInput" rows="2" placeholder="폴더를 선택하세요" disabled></textarea><button class="primary" disabled>전송</button></form>
+  </aside>
+</main>
+<dialog id="dlg"></dialog>
+<div id="toast"></div>
+<script src="/vendor/force-graph.js"></script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

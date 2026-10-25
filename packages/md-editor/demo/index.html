@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>md-editor demo</title>
+<link rel="stylesheet" href="../dist/md-editor.css">
+<style>
+  html, body { height: 100%; margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background: var(--md-bg); color: var(--md-fg); }
+  header { display: flex; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--md-line); background: var(--md-panel); }
+  header span { flex: 1; } main { height: calc(100% - 45px); }
+  button.t { font: inherit; padding: 3px 10px; cursor: pointer; border: 1px solid var(--md-line); background: var(--md-panel2); color: inherit; border-radius: 6px; }
+</style>
+</head>
+<body>
+<header><b>md-editor</b><span id="log">Ctrl/Cmd+S 저장 · [[위키링크]] 클릭 · 위 버튼으로 모드 전환</span><button class="t" id="theme">테마 전환</button></header>
+<main id="app"></main>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
