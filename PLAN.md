@@ -222,3 +222,35 @@ herdr 확인 결과 `workspace create`, `pane split`, `pane run`, `pane send-tex
 - UI: 채팅 헤더 에이전트 드롭다운 + `＋`, 에이전트 탭 칩 목록, 트리에 에이전트 행(2개 이상일 때)과 `+N` 배지, 선택한 에이전트는 폴더별로 기억.
 - 한계: 같은 폴더의 에이전트는 파일·MCP·스킬을 공유하므로 동시 수정 충돌은 막지 않고 안내 문구만 표시.
 - 검증: 단위 테스트(저장소 마이그레이션) + e2e(병렬 채팅·세션 분리·CLI targets·기본 지정·삭제) 포함 28개 통과, 실제 claude로 두 에이전트 동시 대화·에이전트별 터미널 확인.
+
+## 18. Codex 겸용 (기획, 2026-10-25) — 브랜치 `feature/codex-engine`
+**목표:** 같은 앱에서 에이전트마다 Claude Code 또는 Codex CLI를 골라 쓰고, 언제든 바꿀 수 있다. 상단에서 새 에이전트의 기본 엔진을 고른다.
+
+### 18.1 조사 결과 (codex-cli 0.162.1, 이 PC에서 실제 실행)
+| 항목 | 확인 내용 |
+|---|---|
+| 비대화형 | `codex exec --json` → JSONL: `thread.started{thread_id}` · `turn.started` · `item.started/completed`(`agent_message`, `command_execution`, `error`) · `turn.completed{usage}` · `turn.failed{error}` · `error`. 글자 단위 델타 없음(메시지 단위). |
+| 세션 | 세션 ID를 미리 지정할 수 없다(Claude `--session-id`와 다름). 첫 턴의 `thread_id`로 알게 된다. 이어가기: `codex exec resume <id> "<프롬프트>"`, 대화형: `codex resume <id>`. |
+| 세션 파일 | `~/.codex/sessions/Y/M/D/rollout-<시각>-<id>.jsonl`. 첫 줄 `session_meta{id,cwd}`, 이후 `response_item`(message/tool call), `event_msg.token_count{rate_limits}`. |
+| 권한 | `-s read-only｜workspace-write｜danger-full-access`, 전부 허용 `--dangerously-bypass-approvals-and-sandbox`. `exec resume`에는 `-s`가 없어 `-c sandbox_mode="…"`로 지정. 대화형은 `-a`(승인 정책) 사용 가능. |
+| 지침 주입 | `-c developer_instructions="…"` 동작 확인(에이전트 이름·역할·지침을 여기로). |
+| MCP | `-c 'mcp_servers={}'`로 전역 MCP 차단, `-c 'mcp_servers={이름={command=…,args=[…]}}'`로 폴더 전용 주입(인라인 TOML). 전역 설정은 `~/.codex/config.toml`(OAuth 만료 서버가 에러 로그를 남김 → 격리 필요). |
+| 한도 | 세션 파일 `token_count.rate_limits`: `primary{used_percent, window_minutes, resets_at}`(주간 1개 창). 5시간 창 없음. |
+| 오류 | 모델 오류 등은 `error` + `turn.failed`로 오고 종료 코드는 0일 수 있다 → 이벤트로 판정. |
+| 제한 | 슬래시(`/`) 명령·`@` 첨부는 TUI 기능이라 exec에서 처리되지 않는다. 대화형 승인 카드(`ask`)는 exec에서 불가. |
+
+### 18.2 설계
+- **엔진 값:** 에이전트의 `engine`(`claude`|`codex`, 없으면 claude = 기존 데이터 호환). 전역 기본값은 `config.defaultEngine`. 세션은 엔진별로 따로 저장(`sessionId`는 Claude, `codex.threadId`는 Codex) — 엔진을 바꿔도 각자 대화가 남고 돌아가면 이어진다.
+- **구조:** `lib/codex.mjs`(실행·이벤트 변환·세션 탐색·기록 읽기·한도·MCP 변환)를 새로 두고, 서버/pty/herdr/추천기는 `agent.engine`으로 분기한다. 기존 Claude 경로는 건드리지 않는다. 바쁨 잠금·SSE 이벤트·UI 이벤트 형식은 그대로 공유.
+- **채팅(Codex):** `codex exec --json` 프로세스(+`resume`)를 띄워 이벤트를 UI 이벤트(`text`·`tool`·`tool_result`·`done`·`error`)로 변환. 중단 = 프로세스 종료. 첫 턴의 `thread_id`를 저장.
+- **터미널/herdr(Codex):** `codex resume <id> -C <폴더> …`. 아직 thread가 없으면 `codex …`로 새 세션을 열고, 다음 사용 때 `session_meta.cwd`가 같고 다른 에이전트가 쓰지 않는 가장 최근 세션을 연결한다.
+- **권한:** Codex는 `full`(우회) · `workspace`(작업 폴더만 쓰기 샌드박스) · `readonly`. `ask`(카드 승인)는 Claude 전용 — UI는 엔진에 맞는 선택지만 보여준다. 터미널에서는 `-a on-request`로 승인 가능.
+- **기록:** 세션 파일(`response_item`)을 UI 메시지로 변환.
+- **한도 게이지:** 마지막 턴의 세션 파일에서 읽어 Codex 주간 창 1개로 표시. 상단 게이지는 선택한 에이전트(없으면 기본) 엔진 것을 보여준다.
+- **MCP:** `.mcp.json` → `-c mcp_servers=…` 변환(stdio/http). 기본은 폴더 전용 격리, `inherit`면 전역 유지. **스킬:** Codex는 `.claude/skills`를 읽지 않으므로 2차(지침에 요약 포함 또는 `AGENTS.md`)로 미룸.
+- **추천기·초안:** 보조 실행(`runOnce`)도 엔진을 받는다(`codex exec --ephemeral -s read-only -o <파일>`).
+- **UI:** 상단 `기본 엔진` 선택, 에이전트 탭 `엔진` 선택(+엔진별 권한 선택지), 채팅 헤더에 엔진 배지·전환, `/` 팝업은 Codex에서 비활성 안내.
+- **Windows/WSL:** 기존 `wrap()` 재사용(`MORING_CODEX`로 경로 지정).
+
+### 18.3 단계
+1. 엔진 값·저장·API, 2. `lib/codex.mjs` + fake codex 테스트, 3. 채팅/기록/한도, 4. pty·herdr, 5. MCP 변환·추천기, 6. UI, 7. 실제 codex 확인 + 문서.
