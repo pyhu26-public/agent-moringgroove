@@ -1,6 +1,6 @@
 // Native-style chat on the Claude Agent SDK: token streaming, markdown, tool cards,
 // interactive permission prompts, stop button, slash-command autocomplete, history.
-const MODES = { full: '전체 권한', ask: '매번 확인', readonly: '읽기 전용' };
+const MODES = { full: '전체 권한', ask: '매번 확인', workspace: '작업 폴더 쓰기', readonly: '읽기 전용' };
 
 export function initChat({ api, $, el, toast, getState, onEnd }) {
   // Chat state is per agent (key = agent id): one folder can hold several agents with separate conversations.
@@ -59,7 +59,7 @@ export function initChat({ api, $, el, toast, getState, onEnd }) {
     if (!getState().active) return;
     if (!a) return box().append(el('div', { className: 'msg sys' }, '이 폴더에는 아직 에이전트가 없습니다. "에이전트" 탭에서 생성하세요.'));
     const s = st(f);
-    if (!s.log.length) box().append(el('div', { className: 'msg sys' }, a.started ? '이전 대화를 불러오는 중…' : '새 대화를 시작합니다. 슬래시(/) 명령과 스킬을 쓸 수 있습니다.'));
+    if (!s.log.length) box().append(el('div', { className: 'msg sys' }, a.started ? '이전 대화를 불러오는 중…' : a.engine === 'codex' ? '새 Codex 대화를 시작합니다. (슬래시 명령·스킬은 Codex 터미널에서 사용)' : '새 대화를 시작합니다. 슬래시(/) 명령과 스킬을 쓸 수 있습니다.'));
     for (const m of s.log) { m.el = null; mount(f, m); }
     stick(true); meta();
   }
@@ -67,9 +67,11 @@ export function initChat({ api, $, el, toast, getState, onEnd }) {
     const f = active(), a = getState().agent, m = $('#chatMeta'); m.replaceChildren();
     if (!a) return;
     const s = st(f), parts = [];
+    parts.push(el('span', { className: 'engbadge ' + (a.engine || 'claude') }, a.engine === 'codex' ? 'Codex' : 'Claude'));
     parts.push(el('span', { className: 'badge' + (a.permission === 'full' ? ' warn' : ' ok') }, MODES[a.permission] || '전체 권한'));
     if (s.meta.model || a.model) parts.push(el('span', { className: 'muted' }, s.meta.model || a.model));
     if (s.meta.cost != null) parts.push(el('span', { className: 'muted' }, `직전 $${s.meta.cost.toFixed(3)} · ${(s.meta.duration / 1000).toFixed(1)}s`));
+    else if (s.meta.tokens != null) parts.push(el('span', { className: 'muted' }, `직전 ${s.meta.tokens.toLocaleString()} 토큰 · ${(s.meta.duration / 1000).toFixed(1)}s`));
     if (s.meta.thinking) parts.push(el('span', { className: 'muted' }, '생각 중…'));
     m.append(...parts);
     if (a.terminal) {
@@ -112,10 +114,11 @@ export function initChat({ api, $, el, toast, getState, onEnd }) {
       case 'tool_result': { const m = s.tools[ev.id]; if (m) { m.status = ev.error ? 'err' : 'ok'; m.preview = ev.preview; mount(f, m); } break; }
       case 'permission': add(f, { k: 'perm', id: ev.id, tool: ev.tool, summary: ev.summary, detail: ev.detail, title: ev.title, canAlways: ev.canAlways, state: 'pending' }); break;
       case 'limit': add(f, { k: 'sys', text: `사용 한도 상태: ${ev.status}` + (ev.resetsAt ? ` (재설정 ${new Date(ev.resetsAt * 1000).toLocaleString()})` : '') }); break;
-      case 'done': s.meta.cost = ev.cost; s.meta.duration = ev.duration; s.meta.thinking = false;
+      case 'done': s.meta.cost = ev.cost; s.meta.duration = ev.duration; s.meta.tokens = ev.usage ? (ev.usage.input_tokens || 0) + (ev.usage.output_tokens || 0) : null; s.meta.thinking = false;
         if (ev.interrupted) add(f, { k: 'sys', text: '■ 응답이 중단되었습니다.' });
         else if (!ev.ok && ev.text) add(f, { k: 'err', text: ev.text });
         break;
+      case 'notice': add(f, { k: 'sys', text: ev.text }); break;
       case 'error': add(f, { k: 'err', text: ev.message }); break;
       case 'end': s.cur = null; s.run = null; s.meta.thinking = false; if (active() === f) { setRunning(false); meta(); } onEnd?.(f); break;
     }

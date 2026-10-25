@@ -36,7 +36,7 @@ export function initTerm({ api, $, el, toast, getState, onClosed }) {
     status('연결 중…');
     ws.onmessage = e => {
       const m = JSON.parse(e.data);
-      if (m.t === 'ready') { status(`${agent.name} · claude 세션 실행 중`); t.term.reset(); if (m.replay) t.term.write(m.replay); const s = t.fit(); ws.send(JSON.stringify({ t: 'resize', cols: s.cols, rows: s.rows })); t.term.focus(); agent.terminal = true; }
+      if (m.t === 'ready') { status(`${agent.name} · ${agent.engine === 'codex' ? 'codex' : 'claude'} 세션 실행 중`); t.term.reset(); if (m.replay) t.term.write(m.replay); const s = t.fit(); ws.send(JSON.stringify({ t: 'resize', cols: s.cols, rows: s.rows })); t.term.focus(); agent.terminal = true; }
       else if (m.t === 'out') t.term.write(m.data);
       else if (m.t === 'exit') { status(`세션 종료됨 (코드 ${m.code}) — "다시 연결"로 새로 시작`); agent.terminal = false; onClosed?.(key); }
       else if (m.t === 'error') { status(m.message); toast(m.message); }
@@ -46,7 +46,7 @@ export function initTerm({ api, $, el, toast, getState, onClosed }) {
   }
   $('#termRestart').onclick = () => { disconnect(); connect(); };
   $('#termKill').onclick = async () => {
-    const { active: f, agent } = getState(); if (!f || !agent || !confirm('터미널의 claude 세션 프로세스를 종료할까요? (대화 기록은 유지됩니다)')) return;
+    const { active: f, agent } = getState(); if (!f || !agent || !confirm('터미널의 세션 프로세스를 종료할까요? (대화 기록은 유지됩니다)')) return;
     await api('/api/terminal/kill', 'POST', { folder: f, agentId: agent.id }).catch(e => toast(e.message));
   };
   return { show: connect, hide: disconnect, retheme: () => cur?.t.term && (cur.t.term.options.theme = theme()), fit: () => cur?.t.fit() };

@@ -39,6 +39,15 @@ npm test             # 단위 + E2E(가짜 claude/herdr 사용)
 - 터미널 WebSocket(`/ws/term`)은 셸급 권한이므로 127.0.0.1 바인딩 + Host/Origin 검증을 한다.
 - 레거시 엔진(`claude -p` 1회성)은 `MORING_CHAT_ENGINE=cli`로 선택 (테스트용).
 
+## Codex CLI 겸용
+- 에이전트마다 엔진(`Claude Code` / `Codex CLI`)을 고른다: 에이전트 탭의 `엔진`, 채팅 헤더의 엔진 선택. 상단 `기본 엔진`은 **새 에이전트**의 기본값이다.
+- 대화는 **엔진별로 따로** 이어진다(세션 형식이 달라 서로 이어받을 수 없음). 엔진을 바꿨다가 돌아오면 이전 대화가 그대로 남아 있다.
+- Codex 에이전트: 채팅은 `codex exec --json`(메시지 단위 표시), `CLI로 보기`·터미널 탭은 `codex resume <thread>`. 웹 채팅과 터미널이 같은 thread를 공유한다. 터미널에서 새로 시작한 세션은 같은 폴더의 가장 최근 Codex 세션으로 자동 연결된다.
+- 권한: `전체 허용`(샌드박스 없음) / `작업 폴더만 쓰기`(샌드박스) / `읽기 전용`. 채팅의 허용·거부 카드(`매번 확인`)는 Claude 전용이고, Codex 터미널은 승인 질문(`-a on-request`)이 뜬다.
+- MCP: 폴더의 `.mcp.json`을 실행 때마다 `-c mcp_servers=…`로 변환해 적용(전역 MCP 격리). 스킬(`.claude/skills`)과 `/` 명령은 Codex에서 쓰이지 않는다.
+- 한도 게이지: 선택한 에이전트(없으면 기본)의 엔진 기준. Codex는 세션 파일의 `rate_limits`를 읽어 표시하므로 토큰을 쓰지 않는다.
+- 설치 경로는 `MORING_CODEX`로 지정할 수 있다(기본 `codex`). Windows는 WSL(Ubuntu) 안의 `codex`를 쓴다(실제 PC에서는 아직 확인 못 함).
+
 ## 알아둘 점
 - 에이전트는 기본 **전체 권한**으로 실행. 에이전트 탭의 권한 모드에서 `매번 확인`/`읽기 전용`으로 낮출 수 있다.
 - 상위 Claude Code 세션 안에서 서버를 띄워도 자식 claude가 영향받지 않도록 `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION` 등 상속 마커 환경변수를 제거한다(남아 있으면 대화 기록 저장이 꺼진다).

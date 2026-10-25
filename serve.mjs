@@ -7,7 +7,9 @@ import { config, agents } from './lib/store.mjs';
 import { listDirs, browse, insideAnyRoot, searchFiles } from './lib/fsx.mjs';
 import { buildGraph, readDoc, writeDoc } from './lib/graph.mjs';
 import * as usage from './lib/usage.mjs';
-import { chat as chatCli, newAgent, isBusy, hasStarted, permissionOf } from './lib/claude.mjs';
+import { chat as chatCli, newAgent, isBusy } from './lib/claude.mjs';
+import * as codex from './lib/codex.mjs';
+import { ENGINES, engineOf, defaultEngine, startedOf, permissionOf, permissionFor } from './lib/engine.mjs';
 import * as sdk from './lib/sdkchat.mjs';
 import * as term from './lib/ptyterm.mjs';
 import { WebSocketServer } from 'ws';
@@ -48,7 +50,14 @@ function agentOf(f, id) {
 }
 const ENGINE = process.env.MORING_CHAT_ENGINE || 'sdk'; // 'cli' = legacy one-shot `claude -p` (used by the fake-claude tests)
 const chat = (...a) => (ENGINE === 'cli' ? chatCli(...a) : sdk.chat(...a));
-const agentView = a => a && { ...a, started: hasStarted(a), busy: isBusy(a.id), permission: permissionOf(a), terminal: term.isLive(a.id), engine: ENGINE };
+// agent as the UI sees it. A Codex agent whose first session was opened in a terminal is linked to it here (lazily).
+const agentView = (a, folder) => {
+  if (!a) return a;
+  if (engineOf(a) === 'codex' && a.codexPending && !a.codex?.threadId) a = codex.linkThread(folder, a);
+  return { ...a, engine: engineOf(a), chatEngine: ENGINE, started: startedOf(a), busy: isBusy(a.id), permission: permissionOf(a), terminal: term.isLive(a.id) };
+};
+const views = f => agents.list(f).map(a => agentView(a, f));
+const helperEngine = e => (ENGINES.includes(e) ? e : defaultEngine());
 
 // DNS-rebinding + cross-site protection: local tool that can run claude with full permissions.
 function guard(req) {
@@ -65,7 +74,7 @@ async function api(req, res, url) {
   const m = req.method, p = url.pathname, q = url.searchParams;
   const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(m) ? await readBody(req) : {};
 
-  if (p === '/api/state') return json(res, 200, { roots: config.get().roots, favorites: favorites(), platform: platform(), wsl: isWin(), wslDistro: config.get().wslDistro });
+  if (p === '/api/state') return json(res, 200, { roots: config.get().roots, favorites: favorites(), platform: platform(), wsl: isWin(), wslDistro: config.get().wslDistro, defaultEngine: defaultEngine(), engines: { claude: { ok: true }, codex: await codex.available() } });
 
   if (p === '/api/favorites') {
     const c = config.get(), f = path.resolve(body.path || '');
@@ -76,7 +85,14 @@ async function api(req, res, url) {
     config.set(c);
     return json(res, 200, { favorites: favorites() });
   }
-  if (p === '/api/usage') return json(res, 200, q.get('refresh') === '1' ? await usage.probe() : usage.snapshot());
+  if (p === '/api/engine/default' && m === 'PUT') {
+    if (!ENGINES.includes(body.engine)) throw err(400, '엔진은 claude 또는 codex 입니다');
+    config.set({ ...config.get(), defaultEngine: body.engine }); return json(res, 200, { defaultEngine: body.engine });
+  }
+  if (p === '/api/usage') {
+    if (q.get('engine') === 'codex') { codex.refreshUsage(q.get('refresh') === '1'); return json(res, 200, usage.snapshotCodex()); } // read from codex's session files: free
+    return json(res, 200, q.get('refresh') === '1' ? await usage.probe() : usage.snapshot());
+  }
 
   if (p === '/api/roots') {
     const c = config.get();
@@ -104,25 +120,28 @@ async function api(req, res, url) {
   }
 
   if (p === '/api/agent') {
-    if (m === 'GET') { const f = folderOf(q.get('folder')), list = agents.list(f).map(agentView); return json(res, 200, { agent: (q.get('agentId') && list.find(a => a.id === q.get('agentId'))) || list[0] || null, agents: list }); }
+    if (m === 'GET') { const f = folderOf(q.get('folder')), list = views(f); return json(res, 200, { agent: (q.get('agentId') && list.find(a => a.id === q.get('agentId'))) || list[0] || null, agents: list }); }
     const f = folderOf(body.folder ?? q.get('folder'));
     if (m === 'DELETE') {
       const gone = agents.del(f, body.agentId ?? q.get('agentId') ?? undefined);
       if (gone) { await sdk.interrupt(gone.id).catch(() => {}); term.kill(gone.id); }
-      return json(res, 200, { ok: true, agents: agents.list(f).map(agentView) });
+      return json(res, 200, { ok: true, agents: views(f) });
     }
     if (m === 'PUT') {
       const name = String(body.name || '').trim();
       if (!name) throw err(400, '이름이 필요합니다');
       // body.new -> an additional agent for this folder; body.agentId -> that one; neither -> the folder's default (created if none)
-      const cur = body.new ? newAgent() : (body.agentId ? agentOf(f, body.agentId) : agents.get(f)) || newAgent();
-      const perm = ['full', 'ask', 'readonly'].includes(body.permission) ? body.permission : (body.fullAccess === false ? 'readonly' : 'full');
-      const saved = agents.put(f, { ...cur, name, role: String(body.role || ''), systemPrompt: String(body.systemPrompt || ''), model: String(body.model || ''), permission: perm, fullAccess: perm === 'full', mcpMode: body.mcpMode === 'inherit' ? 'inherit' : 'folder', updatedAt: new Date().toISOString() });
-      return json(res, 200, { agent: agentView(saved), agents: agents.list(f).map(agentView) });
+      const existing = body.new ? null : (body.agentId ? agentOf(f, body.agentId) : agents.get(f));
+      const cur = existing || newAgent();
+      // engine: as asked, else keep the agent's own (legacy agents = claude), else the app default for brand-new agents
+      const engine = ENGINES.includes(body.engine) ? body.engine : existing ? engineOf(existing) : defaultEngine();
+      const perm = permissionFor(engine, ['full', 'ask', 'workspace', 'readonly'].includes(body.permission) ? body.permission : (body.fullAccess === false ? 'readonly' : 'full'));
+      const saved = agents.put(f, { ...cur, engine, name, role: String(body.role || ''), systemPrompt: String(body.systemPrompt || ''), model: String(body.model || ''), permission: perm, fullAccess: perm === 'full', mcpMode: body.mcpMode === 'inherit' ? 'inherit' : 'folder', updatedAt: new Date().toISOString() });
+      return json(res, 200, { agent: agentView(saved, f), agents: views(f) });
     }
   }
-  if (p === '/api/agent/default' && m === 'POST') { const f = folderOf(body.folder); if (!agents.makeDefault(f, String(body.agentId))) throw err(404, '에이전트가 없습니다'); return json(res, 200, { agents: agents.list(f).map(agentView) }); }
-  if (p === '/api/agent/draft' && m === 'POST') return json(res, 200, { draft: await rec.draftAgent(folderOf(body.folder)) });
+  if (p === '/api/agent/default' && m === 'POST') { const f = folderOf(body.folder); if (!agents.makeDefault(f, String(body.agentId))) throw err(404, '에이전트가 없습니다'); return json(res, 200, { agents: views(f) }); }
+  if (p === '/api/agent/draft' && m === 'POST') return json(res, 200, { draft: await rec.draftAgent(folderOf(body.folder), helperEngine(body.engine)) });
 
   if (p === '/api/chat' && m === 'POST') {
     const f = folderOf(body.folder), a = agentOf(f, body.agentId);
@@ -130,16 +149,17 @@ async function api(req, res, url) {
     if (!String(body.message || '').trim()) throw err(400, '메시지가 비어 있습니다');
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive' });
     let ended = false;
-    const run = chat(f, a, String(body.message), ev => { if (res.writableEnded) return; res.write(`data: ${JSON.stringify(ev)}\n\n`); if (ev.t === 'end') { ended = true; res.end(); } });
+    const run = (engineOf(a) === 'codex' ? codex.chat : chat)(f, a, String(body.message), ev => { if (res.writableEnded) return; res.write(`data: ${JSON.stringify(ev)}\n\n`); if (ev.t === 'end') { ended = true; res.end(); } });
     res.on('close', () => { if (!ended) run.abort(); });
     return;
   }
 
   if (p === '/api/chat/permission' && m === 'POST') return json(res, 200, { ok: sdk.answerPermission(agentOf(folderOf(body.folder), body.agentId)?.id, String(body.id), body.behavior === 'allow' ? 'allow' : 'deny', !!body.always) });
-  if (p === '/api/chat/interrupt' && m === 'POST') return json(res, 200, { ok: await sdk.interrupt(agentOf(folderOf(body.folder), body.agentId)?.id) });
-  if (p === '/api/chat/history') { const f = folderOf(q.get('folder')), a = agentOf(f, q.get('agentId')); return json(res, 200, { messages: a ? await sdk.history(f, a) : [] }); }
+  if (p === '/api/chat/interrupt' && m === 'POST') return json(res, 200, { ok: await (async () => { const a = agentOf(folderOf(body.folder), body.agentId); return engineOf(a) === 'codex' ? codex.interrupt(a.id) : sdk.interrupt(a?.id); })() });
+  if (p === '/api/chat/history') { const f = folderOf(q.get('folder')), a = agentOf(f, q.get('agentId')); return json(res, 200, { messages: !a ? [] : engineOf(a) === 'codex' ? await codex.history(f, a) : await sdk.history(f, a) }); }
   if (p === '/api/chat/commands') {
     const f = folderOf(q.get('folder')), a = agentOf(f, q.get('agentId'));
+    if (engineOf(a) === 'codex') return json(res, 200, { commands: [], items: [], engine: 'codex' }); // slash commands/skills are Codex TUI features: exec has none
     let list = [];
     if (ENGINE !== 'cli') { try { list = await sdk.loadCommands(f, a, q.get('refresh') === '1'); } catch {} }
     const have = new Set(list.map(c => c.name));
@@ -165,8 +185,8 @@ async function api(req, res, url) {
     if (m === 'DELETE') ms.delSkill(f, body.name ?? q.get('name'));
     return json(res, 200, { skills: ms.listSkills(f) });
   }
-  if (p === '/api/recommend/mcp' && m === 'POST') return json(res, 200, { items: await rec.recommendMcp(folderOf(body.folder)) });
-  if (p === '/api/recommend/skills' && m === 'POST') return json(res, 200, { items: await rec.recommendSkills(folderOf(body.folder)) });
+  if (p === '/api/recommend/mcp' && m === 'POST') return json(res, 200, { items: await rec.recommendMcp(folderOf(body.folder), helperEngine(body.engine)) });
+  if (p === '/api/recommend/skills' && m === 'POST') return json(res, 200, { items: await rec.recommendSkills(folderOf(body.folder), helperEngine(body.engine)) });
 
   if (p === '/api/cli/open' && m === 'POST') {
     // targets: [{folder, agentId?}] (agentId omitted -> the folder's default agent); `folders: [path]` is the older shorthand

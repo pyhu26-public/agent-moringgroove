@@ -9,7 +9,7 @@ const el = (tag, props = {}, ...kids) => {
   for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k));
   return e;
 };
-const S = { roots: [], kids: new Map(), open: new Set(), checked: new Set(), active: null, agent: null, agents: [], newAgent: false, tab: 'graph', chats: new Map(), busy: false, graph: null, lt: 'folders', favs: [], nodes: [] };
+const S = { roots: [], kids: new Map(), open: new Set(), checked: new Set(), active: null, agent: null, agents: [], defaultEngine: 'claude', engines: {}, newAgent: false, tab: 'graph', chats: new Map(), busy: false, graph: null, lt: 'folders', favs: [], nodes: [] };
 
 async function api(url, method = 'GET', body) {
   const r = await fetch(url, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
@@ -130,12 +130,25 @@ function renderChatHeader() {
   const sl = $('#agentSel'); sl.hidden = !S.agents.length; sl.replaceChildren(...S.agents.map(x => el('option', { value: x.id, selected: a && x.id === a.id }, x.name)));
   $('#chatTitle').hidden = !!S.agents.length; $('#chatTitle').textContent = S.active ? '에이전트 없음' : '대화';
   $('#agentAdd').disabled = !S.active;
+  const ae = $('#agentEngine'); ae.hidden = !a; if (a) ae.value = a.engine || 'claude';
+  if ((a?.engine || S.defaultEngine) !== usageEngine) loadUsage();
   const fb = $('#fullbadge'); fb.hidden = !a; if (a) { const pm = a.permission || 'full'; fb.textContent = { full: '전체 권한', ask: '매번 확인', readonly: '읽기 전용' }[pm]; fb.className = 'badge ' + (pm === 'full' ? 'warn' : 'ok'); }
   for (const id of ['recMcp', 'recSkill', 'cliOne']) $('#' + id).disabled = !S.active || (id === 'cliOne' && !a);
   $('#chatInput').disabled = !a; if (!a || !chatApi.isRunning(a.id)) $('#chatForm button').disabled = !a;
   $('#chatInput').placeholder = a ? `${a.name}에게 메시지 (Enter 전송, Shift+Enter 줄바꿈)` : (S.active ? '에이전트 탭에서 먼저 생성하세요' : '폴더를 선택하세요');
 }
 $('#agentSel').onchange = guard(() => selectAgent($('#agentSel').value));
+// switch the agent's engine; each engine keeps its own conversation, so switching back resumes the earlier one
+$('#agentEngine').onchange = guard(async () => {
+  const a = S.agent, engine = $('#agentEngine').value; if (!a || engine === (a.engine || 'claude')) return;
+  if (a.busy || a.terminal) { $('#agentEngine').value = a.engine || 'claude'; return toast('응답 중이거나 터미널이 열려 있습니다. 먼저 종료하세요.'); }
+  await saveAgent({ engine }); renderChatHeader(); renderChat(); await renderAgentTab(); toast(`엔진을 ${engine === 'codex' ? 'Codex' : 'Claude'}로 바꿨습니다 — 대화는 엔진별로 따로 이어집니다`);
+});
+async function saveAgent(patch) { // PUT replaces every field, so send the whole agent with the change on top
+  const a = S.agent, r = await api('/api/agent', 'PUT', { folder: S.active, agentId: a.id, name: a.name, role: a.role, systemPrompt: a.systemPrompt, model: a.model, permission: a.permission, mcpMode: a.mcpMode, engine: a.engine, ...patch });
+  await refreshAgents(r.agent.id); S.kids.clear(); renderTree(); renderFavs();
+}
+$('#engineSel').onchange = guard(async () => { const r = await api('/api/engine/default', 'PUT', { engine: $('#engineSel').value }); S.defaultEngine = r.defaultEngine; if (!S.agent) loadUsage(); });
 $('#agentAdd').onclick = guard(async () => { S.newAgent = true; showTab('agent'); await renderAgentTab(); });
 
 /* ---------------- tabs ---------------- */
@@ -186,23 +199,37 @@ async function renderAgentTab() {
     const add = el('button', { className: 'chip add' + (creating ? ' on' : '') }, '＋ 새 에이전트'); add.onclick = guard(async () => { S.newAgent = true; await renderAgentTab(); });
     chips.append(add); box.append(chips);
   }
-  const a = creating ? { name: base(S.active) + ' 담당' + (S.agents.length ? ' ' + (S.agents.length + 1) : ''), role: '', systemPrompt: '', model: '', fullAccess: true } : S.agent;
+  const a = creating ? { name: base(S.active) + ' 담당' + (S.agents.length ? ' ' + (S.agents.length + 1) : ''), role: '', systemPrompt: '', model: '', fullAccess: true, engine: S.defaultEngine } : S.agent;
+  const PERMS = {
+    claude: [['full', '전체 허용 — 모든 도구를 묻지 않고 실행'], ['ask', '매번 확인 — 쓰기/실행 도구는 채팅에서 허용·거부'], ['readonly', '읽기 전용 — Read/Glob/Grep만']],
+    codex: [['full', '전체 허용 — 샌드박스·승인 없이 실행'], ['workspace', '작업 폴더만 쓰기 — 샌드박스 안에서 실행 (채팅은 승인 질문 없음)'], ['readonly', '읽기 전용 — 샌드박스 read-only']],
+  };
   const f = {
+    engine: el('select', {}, [['claude', 'Claude Code'], ['codex', 'Codex CLI']].map(([v, t]) => el('option', { value: v, selected: v === (a.engine || 'claude'), disabled: v === 'codex' && S.engines.codex && !S.engines.codex.ok }, t + (v === 'codex' && S.engines.codex && !S.engines.codex.ok ? ' (설치 안 됨)' : '')))),
     name: el('input', { value: a.name }), role: el('input', { value: a.role, placeholder: '예: 이 폴더의 문서 정리와 리서치 담당' }),
     prompt: el('textarea', { rows: 10, value: a.systemPrompt, placeholder: '담당 범위, 작업 원칙, 참고할 파일, 금지 사항…' }),
-    model: el('select', {}, MODELS.map(m => el('option', { value: m, selected: m === (a.model || '') }, m || '기본 모델'))),
-    perm: el('select', {}, [['full', '전체 허용 — 모든 도구를 묻지 않고 실행'], ['ask', '매번 확인 — 쓰기/실행 도구는 채팅에서 허용·거부'], ['readonly', '읽기 전용 — Read/Glob/Grep만']].map(([v, t]) => el('option', { value: v, selected: v === (a.permission || 'full') }, t))),
+    model: el('input', { value: a.model || '', placeholder: '기본 모델 (비워 두면 CLI 기본값)' }),
+    perm: el('select', {}),
     mcp: el('select', {}, el('option', { value: 'folder', selected: a.mcpMode !== 'inherit' }, '이 폴더에 등록한 MCP만 사용 (권장)'), el('option', { value: 'inherit', selected: a.mcpMode === 'inherit' }, '내 전역 MCP도 함께 사용')),
   };
+  const engNote = el('div', { className: 'muted', style: 'margin-top:4px' });
+  const fillPerm = () => { // permission choices and notes depend on the engine
+    const eng = f.engine.value, cur = f.perm.value || a.permission || 'full', pick = PERMS[eng].some(([v]) => v === cur) ? cur : (cur === 'ask' ? 'workspace' : cur === 'workspace' ? 'ask' : 'full');
+    f.perm.replaceChildren(...PERMS[eng].map(([v, t]) => el('option', { value: v, selected: v === pick }, t)));
+    $('#modelList').replaceChildren(...(eng === 'codex' ? [] : MODELS.filter(Boolean)).map(m => el('option', { value: m })));
+    engNote.textContent = eng === 'codex' ? 'Codex: 대화는 Claude와 따로 이어집니다. 슬래시(/) 명령·스킬(.claude/skills)은 지원하지 않고, 응답은 메시지 단위로 표시됩니다. 한도는 주간 1개 창입니다.' : '';
+  };
+  f.model.setAttribute('list', 'modelList');
+  f.engine.onchange = fillPerm; fillPerm();
   const save = el('button', { className: 'primary' }, creating ? '에이전트 생성' : '저장');
   save.onclick = guard(async () => {
-    const r = await api('/api/agent', 'PUT', { folder: S.active, ...(S.newAgent && S.agents.length ? { new: true } : creating ? {} : { agentId: S.agent.id }), name: f.name.value, role: f.role.value, systemPrompt: f.prompt.value, model: f.model.value, permission: f.perm.value, mcpMode: f.mcp.value });
-    S.newAgent = false; await refreshAgents(r.agent.id); renderChatHeader(); renderChat(); await renderAgentTab(); renderTree(); renderFavs(); toast('저장되었습니다'); if (S.tab === 'agent') loadGraph();
+    const r = await api('/api/agent', 'PUT', { folder: S.active, ...(S.newAgent && S.agents.length ? { new: true } : creating ? {} : { agentId: S.agent.id }), name: f.name.value, role: f.role.value, systemPrompt: f.prompt.value, model: f.model.value, permission: f.perm.value, mcpMode: f.mcp.value, engine: f.engine.value });
+    S.newAgent = false; await refreshAgents(r.agent.id); renderChatHeader(); loadUsage(); renderChat(); await renderAgentTab(); renderTree(); renderFavs(); toast('저장되었습니다'); if (S.tab === 'agent') loadGraph();
   });
   const draft = el('button', {}, '초안 자동 제안 (폴더 분석)');
   draft.onclick = guard(async () => {
     draft.disabled = true; draft.textContent = '폴더 분석 중… (최대 1~2분)';
-    try { const { draft: d } = await api('/api/agent/draft', 'POST', { folder: S.active }); f.name.value = d.name; f.role.value = d.role; f.prompt.value = d.systemPrompt; toast('초안을 채웠습니다. 확인 후 저장하세요.'); }
+    try { const { draft: d } = await api('/api/agent/draft', 'POST', { folder: S.active, engine: f.engine.value }); f.name.value = d.name; f.role.value = d.role; f.prompt.value = d.systemPrompt; toast('초안을 채웠습니다. 확인 후 저장하세요.'); }
     finally { draft.disabled = false; draft.textContent = '초안 자동 제안 (폴더 분석)'; }
   });
   const del = el('button', { className: 'danger' }, '에이전트 삭제');
@@ -217,11 +244,11 @@ async function renderAgentTab() {
   box.append(...[
     el('h3', {}, creating ? (S.agents.length ? '이 폴더에 에이전트 추가' : '이 폴더에는 담당 에이전트가 없습니다 — 생성하세요') : '담당 에이전트 수정'),
     el('div', { className: 'muted' }, S.active),
-    el('label', {}, '이름'), f.name, el('label', {}, '역할'), f.role, el('label', {}, '지침 (시스템 프롬프트)'), f.prompt,
+    el('label', {}, '엔진'), f.engine, engNote, el('label', {}, '이름'), f.name, el('label', {}, '역할'), f.role, el('label', {}, '지침 (시스템 프롬프트)'), f.prompt,
     el('label', {}, '모델'), f.model, el('label', {}, 'MCP 범위'), f.mcp,
     el('label', {}, '권한 모드'), f.perm,
     el('div', { className: 'row', style: 'margin-top:14px' }, save, draft, !creating ? del : null, !creating && idx > 0 ? mkDef : null),
-    !creating ? el('div', { className: 'muted', style: 'margin-top:12px' }, `세션 ID: ${S.agent.sessionId} ${S.agent.started ? '(진행 중 — 터미널에서 이어 열 수 있음)' : '(아직 시작 전)'}`) : null,
+    !creating ? el('div', { className: 'muted', style: 'margin-top:12px' }, (S.agent.engine === 'codex' ? `Codex 스레드: ${S.agent.codex?.threadId || '—'} ` : `세션 ID: ${S.agent.sessionId} `) + (S.agent.started ? '(진행 중 — 터미널에서 이어 열 수 있음)' : '(아직 시작 전)')) : null,
     S.agents.length > 1 ? el('div', { className: 'muted', style: 'margin-top:8px' }, '같은 폴더의 에이전트는 파일을 공유합니다. 여러 에이전트가 동시에 같은 파일을 수정하지 않도록 역할을 나눠 주세요. MCP·스킬은 폴더 단위로 함께 씁니다.') : null].filter(Boolean));
 }
 
@@ -232,6 +259,7 @@ async function renderToolsTab() {
   const [m, s] = await Promise.all([api('/api/mcp?folder=' + encodeURIComponent(S.active)), api('/api/skills?folder=' + encodeURIComponent(S.active))]);
   const f = encodeURIComponent(S.active);
 
+  if (S.agent?.engine === 'codex') box.append(el('div', { className: 'card muted' }, 'Codex 에이전트: MCP는 이 폴더의 .mcp.json이 실행 때마다 Codex 설정으로 변환되어 적용됩니다. 스킬(.claude/skills)은 Claude 에이전트에서만 쓰입니다.'));
   box.append(el('h3', {}, 'MCP 서버 (이 폴더 전용 · .mcp.json)'));
   const names = Object.keys(m.servers);
   if (!names.length) box.append(el('div', { className: 'muted' }, '등록된 MCP가 없습니다.'));
@@ -269,7 +297,7 @@ async function runRecommend(kind, btn, out) {
   btn && (btn.disabled = true);
   out.replaceChildren(el('div', { className: 'muted' }, kind === 'mcp' ? 'MCP 추천 에이전트가 폴더를 분석 중입니다… (최대 1~3분)' : '스킬 추천 에이전트가 폴더를 분석 중입니다… (최대 1~3분)'));
   try {
-    const { items } = await api('/api/recommend/' + kind, 'POST', { folder: S.active });
+    const { items } = await api('/api/recommend/' + kind, 'POST', { folder: S.active, engine: S.agent?.engine || S.defaultEngine });
     out.replaceChildren(...(items.length ? [] : [el('div', { className: 'muted' }, '추천할 항목이 없습니다.')]));
     for (const it of items) {
       const reg = el('button', { className: 'sm primary' }, '등록');
@@ -321,7 +349,8 @@ async function browseDialog(p) {
 /* ---------------- boot ---------------- */
 async function boot() {
   const st = await api('/api/state');
-  S.roots = st.roots; S.favs = st.favorites || []; S.kids.clear();
+  S.roots = st.roots; S.favs = st.favorites || []; S.kids.clear(); S.defaultEngine = st.defaultEngine || 'claude'; S.engines = st.engines || {}; $('#engineSel').value = S.defaultEngine;
+  const cx = $('#engineSel').querySelector('option[value=codex]'); if (cx && S.engines.codex && !S.engines.codex.ok) { cx.disabled = true; cx.textContent = 'Codex CLI (설치 안 됨)'; }
   $('#plat').textContent = st.wsl ? `Windows · WSL(${st.wslDistro})` : st.platform;
   for (const r of S.roots) S.open.add(r);
   await renderTree();
@@ -353,7 +382,7 @@ $('#themeBtn').onclick = () => applyTheme(document.documentElement.dataset.theme
 applyTheme(document.documentElement.dataset.theme || 'light');
 
 /* ---------------- Claude limit gauge (5h session / 7d week) ---------------- */
-let U = null, uRefreshed = 0;
+let U = null, uRefreshed = 0, usageEngine = 'claude';
 const fmtLeft = sec => {
   if (sec == null) return '—'; if (sec <= 0) return '리셋됨';
   const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
@@ -373,12 +402,14 @@ function renderUsage() {
   };
   box.append(part('5시간', U.session), part('주간', U.week));
   if (U.status && U.status !== 'allowed') box.append(el('b', { style: 'color:var(--err)' }, '한도 도달'));
+  box.prepend(el('span', { className: 'engbadge ' + usageEngine }, usageEngine === 'codex' ? 'Codex' : 'Claude'));
   const age = U.at ? Math.round((Date.now() - U.at) / 60000) : null;
-  box.title = 'Claude 사용 한도' + (age != null ? ` · ${age}분 전 확인` : '');
+  box.title = (usageEngine === 'codex' ? 'Codex' : 'Claude') + ' 사용 한도' + (age != null ? ` · ${age}분 전 확인` : '');
 }
 async function loadUsage(refresh = false) {
   try {
-    U = await api('/api/usage' + (refresh ? '?refresh=1' : '')); renderUsage();
+    usageEngine = S.agent?.engine || S.defaultEngine || 'claude';
+    U = await api('/api/usage?engine=' + usageEngine + (refresh ? '&refresh=1' : '')); renderUsage();
     const stale = !U.known || U.session?.expired || U.week?.expired;
     if (!refresh && stale && Date.now() - uRefreshed > 300000) { uRefreshed = Date.now(); loadUsage(true); }
   } catch { renderUsage(); }

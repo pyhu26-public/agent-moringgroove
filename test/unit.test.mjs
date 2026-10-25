@@ -104,3 +104,25 @@ test('agents store: legacy single-agent file migrates; several agents per folder
   assert.equal(agents.del('/x', 'n2').id, 'n2'); assert.equal(agents.get('/x').id, 'old1');
   agents.del('/x'); assert.deepEqual(agents.list('/x'), []); assert.equal('/x' in agents.all(), false);
 });
+
+test('codex: TOML overrides, command cleanup, history parsing', async () => {
+  const c = await import('../lib/codex.mjs');
+  assert.equal(c.mcpToml({}), 'mcp_servers={}');
+  assert.equal(c.mcpToml({ 'my.srv': { command: 'npx', args: ['-y', 'x"y'], env: { A: 'b\nc' } }, h: { type: 'http', url: 'https://x/y', headers: { Authorization: 'Bearer t' } }, bad: { foo: 1 } }),
+    'mcp_servers={"my.srv"={command="npx",args=["-y","x\\"y"],env={A="b\\nc"}},h={url="https://x/y",http_headers={Authorization="Bearer t"}}}');
+  assert.equal(c.plainCommand("/bin/zsh -lc 'echo '\\''hi'\\'''"), "echo 'hi'");
+  assert.equal(c.plainCommand('ls -la'), 'ls -la');
+  assert.equal(c.errorText('{"type":"error","error":{"message":"nope"}}'), 'nope'); assert.equal(c.errorText('plain'), 'plain');
+  const raw = [
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context>x</environment_context>' }] } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '안녕' }] } },
+    { type: 'response_item', payload: { type: 'custom_tool_call', name: 'exec', call_id: 'k', input: 'text(await tools.exec_command({cmd:"rg --files docs",max_output_tokens:100}))' } },
+    { type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'k', output: 'docs/a.md' } },
+    { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '답' }] } },
+  ].map(o => JSON.stringify(o)).join('\n');
+  const h = c.parseHistory(raw);
+  assert.deepEqual(h.map(m => m.k), ['user', 'tool', 'bot']); assert.equal(h[1].input, 'rg --files docs'); assert.equal(h[1].preview, 'docs/a.md');
+  const st = { tools: new Set(), started: Date.now() };
+  assert.deepEqual(c.toUi({ type: 'item.completed', item: { id: 'x', type: 'file_change', status: 'completed', changes: [{ path: 'a.md', kind: 'add' }] } }, st).map(e => e.t), ['tool', 'tool_result']);
+  assert.equal(c.toUi({ type: 'item.completed', item: { id: 'r', type: 'reasoning', text: '..' } }, st).length, 0);
+});

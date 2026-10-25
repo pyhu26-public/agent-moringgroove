@@ -15,6 +15,7 @@
   <span id="plat" class="muted"></span>
   <span class="spacer"></span>
   <span id="fullbadge" class="badge warn" hidden title="이 폴더 에이전트는 모든 권한으로 실행됩니다">전체 권한</span>
+  <label class="enginepick" title="새 에이전트의 기본 엔진 (에이전트마다 따로 바꿀 수 있음)"><span class="muted">기본 엔진</span><select id="engineSel"><option value="claude">Claude Code</option><option value="codex">Codex CLI</option></select></label>
   <div id="usage" class="usage" title="Claude 사용 한도"><span class="muted">한도 확인 중…</span></div>
   <button id="usageRefresh" class="icon" title="한도 새로고침 (작은 요청 1회 사용)">↻</button>
   <button id="themeBtn" class="icon" title="다크/라이트 전환">◐</button>
@@ -63,7 +64,7 @@
   </section>
   <div class="split" id="sp2" title="드래그: 폭 조절 · 더블클릭: 초기화"></div>
   <aside id="right">
-    <div class="bar"><b id="chatTitle">대화</b><select id="agentSel" class="agentsel" hidden title="이 폴더의 에이전트 전환"></select><button id="agentAdd" class="sm" title="이 폴더에 에이전트 추가" disabled>＋</button><span class="spacer"></span>
+    <div class="bar"><b id="chatTitle">대화</b><select id="agentSel" class="agentsel" hidden title="이 폴더의 에이전트 전환"></select><select id="agentEngine" class="engsel" hidden title="이 에이전트의 엔진 (대화는 엔진별로 따로 이어집니다)"><option value="claude">Claude</option><option value="codex">Codex</option></select><button id="agentAdd" class="sm" title="이 폴더에 에이전트 추가" disabled>＋</button><span class="spacer"></span>
       <button id="recMcp" title="MCP 추천 에이전트" disabled>MCP 추천</button>
       <button id="recSkill" title="스킬 추천 에이전트" disabled>스킬 추천</button>
       <button id="cliOne" disabled>CLI로 보기</button>
@@ -73,6 +74,7 @@
     <form id="chatForm"><div id="slashPop" class="slashpop" hidden></div><textarea id="chatInput" rows="2" placeholder="폴더를 선택하세요" disabled></textarea><button class="primary" disabled>전송</button></form>
   </aside>
 </main>
+<datalist id="modelList"></datalist>
 <dialog id="dlg"></dialog>
 <div id="toast"></div>
 <script src="/vendor/force-graph.js"></script>

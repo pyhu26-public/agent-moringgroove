@@ -254,3 +254,8 @@ herdr 확인 결과 `workspace create`, `pane split`, `pane run`, `pane send-tex
 
 ### 18.3 단계
 1. 엔진 값·저장·API, 2. `lib/codex.mjs` + fake codex 테스트, 3. 채팅/기록/한도, 4. pty·herdr, 5. MCP 변환·추천기, 6. UI, 7. 실제 codex 확인 + 문서.
+
+### 18.4 구현 결과 (2026-10-25)
+- 새 파일: `lib/codex.mjs`(실행·이벤트 변환·세션 탐색·기록·한도·MCP 변환), `lib/engine.mjs`(엔진 분기), `test/fake/codex.mjs`, `test/codex.test.mjs`. 서버·pty·herdr·추천기·UI가 `agent.engine`으로 분기하고 Claude 경로는 그대로.
+- 검증: 단위+e2e 38개 통과, 실제 codex로 채팅·resume·읽기 전용 샌드박스·기록·한도 게이지·웹 터미널(웹 채팅 대화를 TUI가 그대로 이어받음) 확인.
+- 남은 것: 스킬/AGENTS.md 연동(2차), Codex 승인 카드(app-server 조사 필요), 토큰 단위 스트리밍, Windows/WSL 실제 PC 확인, herdr 실제 pane에서 Codex 확인.
