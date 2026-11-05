@@ -2,15 +2,184 @@
 
 로컬 폴더 = 업무 단위. 폴더마다 전담 에이전트(로컬 `claude` CLI)를 붙이고, 문서는 지식그래프로, 세션은 herdr 터미널로 이어가는 로컬 웹앱.
 
-## 실행
+## 설치 방법 (처음 받는 분께)
+
+**결론:** Windows에서는 WSL2(Windows 안의 리눅스) 안에 전부 설치하고, 화면은 Windows 브라우저로 봅니다. 처음부터 끝까지 30분 정도 걸립니다.
+
+| 단계 | 할 일 | 어디서 |
+|---|---|---|
+| 1 | WSL2 켜기 (Windows만) | PowerShell (관리자) |
+| 2 | 기본 도구 설치 | Ubuntu (WSL) |
+| 3 | Node.js 22 설치 | Ubuntu (WSL) |
+| 4 | Claude Code 설치와 로그인 | Ubuntu (WSL) |
+| 5 | herdr 설치 | Ubuntu (WSL) |
+| 6 | 앱 받아서 실행 | Ubuntu (WSL) |
+
+macOS와 Linux는 1단계를 건너뜁니다. [아래](#macos--linux)를 보세요. 이미 Node 20 이상, 로그인된 `claude`, `herdr`가 있다면 6단계만 하면 됩니다.
+
+**준비물**
+- Windows 10 (버전 2004, 빌드 19041 이상) 또는 Windows 11. 메모리는 4GB 이상.
+- Claude 유료 계정 (Pro · Max · Team · Enterprise · Console 중 하나). 무료 플랜은 Claude Code를 쓸 수 없습니다.
+- 이 저장소를 받을 수 있는 GitHub 권한. 저장소가 **비공개**입니다.
+- 인터넷 연결.
+
+### 1단계. WSL2 켜기 (Windows만)
+
+1. **가상화가 켜져 있는지 확인합니다.** 작업 관리자(`Ctrl+Shift+Esc`) → 성능 → CPU에서 "가상화: 사용"이어야 합니다. "사용 안 함"이면 PC를 다시 켜서 BIOS/UEFI 설정에서 가상화(Intel VT-x 또는 AMD SVM)를 켭니다. 메뉴 이름은 제조사마다 다릅니다.
+2. **PowerShell을 관리자 권한으로 엽니다.** 시작 메뉴에서 PowerShell을 우클릭 → "관리자 권한으로 실행".
+   ```powershell
+   wsl --install
+   ```
+   이 한 줄이 WSL 기능을 켜고 Ubuntu까지 설치합니다.
+3. **PC를 다시 시작합니다.**
+4. 다시 시작하면 Ubuntu 창이 열립니다. 잠시 기다린 뒤 리눅스 **사용자 이름과 비밀번호**를 정합니다. 비밀번호는 입력해도 화면에 안 보이는 것이 정상입니다. 창이 안 열리면 시작 메뉴에서 "Ubuntu"를 엽니다.
+5. **WSL2로 도는지 확인합니다.** PowerShell에서:
+   ```powershell
+   wsl -l -v
+   ```
+   `VERSION` 열이 `2`여야 합니다. `1`이면 `wsl --set-version Ubuntu 2`를 실행합니다(이름은 목록에 보이는 그대로).
+6. **Windows Terminal을 준비합니다(권장).** Windows 11에는 들어 있습니다. Windows 10은 Microsoft Store에서 "Windows Terminal"을 설치합니다. 없어도 쓸 수 있지만, 그러면 "CLI로 보기"가 일반 콘솔 창으로 열립니다.
+
+<details>
+<summary>wsl --install이 안 될 때</summary>
+
+- 도움말만 나오면 이미 WSL이 있는 것입니다. `wsl --list --online`으로 이름을 보고 `wsl --install -d Ubuntu`를 실행합니다.
+- 설치가 0%에서 멈추면 `wsl --install --web-download -d Ubuntu`를 실행합니다.
+- 기능을 직접 켜려면 관리자 PowerShell에서 아래 두 줄을 실행하고, 다시 시작한 뒤 `wsl --set-default-version 2`와 `wsl --update`를 실행합니다.
+  ```powershell
+  dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+  dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+  ```
+- `0x80370102` 오류는 가상화가 꺼져 있다는 뜻입니다. 위 1번을 하세요.
+</details>
+
+이 아래의 모든 명령은 **Ubuntu 창**에서 실행합니다. 시작 메뉴의 "Ubuntu"나 Windows Terminal의 Ubuntu 탭을 쓰면 됩니다.
+
+### 2단계. 기본 도구 설치
+
 ```bash
-npm install
-npm start            # http://localhost:4600  (PORT 환경변수로 변경)
-npm test             # 단위 + E2E(가짜 claude/herdr 사용)
+sudo apt update
+sudo apt install -y build-essential python3 curl git
 ```
-요구사항: Node 20+, `claude` CLI 로그인, `herdr`.
-- macOS: Terminal.app → herdr
-- Windows: Windows Terminal(`wt.exe`) → WSL(Ubuntu) → herdr. WSL 안에 `claude`, `herdr` 설치 필요 (distro는 `data/config.json`의 `wslDistro`, 기본 `Ubuntu`). Windows에서는 채팅용 `claude`도 WSL 안에서 실행되어 웹과 터미널이 같은 `~/.claude` 세션을 공유한다.
+
+웹 터미널에 쓰는 부품(`node-pty`)은 리눅스용 완성품이 없어서 설치할 때 직접 컴파일합니다. `build-essential`과 `python3`이 없으면 6단계의 `npm install`이 `make: not found` 또는 `gyp ERR!`로 실패합니다.
+
+### 3단계. Node.js 22 설치
+
+Ubuntu가 기본으로 주는 Node는 너무 낮습니다(Ubuntu 20.04는 v10). 이 앱은 **Node 20 이상**이 필요합니다. nvm으로 설치합니다.
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+```
+
+**Ubuntu 창을 닫고 새로 연 뒤** 이어서 실행합니다.
+
+```bash
+nvm install 22
+nvm alias default 22
+node -v        # v22.x.x 가 나와야 합니다
+```
+
+`nvm alias default 22`를 빼면 새 창을 열 때마다 옛 Node가 잡힙니다. nvm의 최신 설치 주소는 [nvm 저장소](https://github.com/nvm-sh/nvm)에서 확인합니다.
+
+### 4단계. Claude Code 설치와 로그인
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+새 창을 열고 확인합니다.
+
+```bash
+claude --version
+claude          # 로그인 안내가 나옵니다
+```
+
+브라우저가 저절로 안 열리면 화면에 나온 주소를 Windows 브라우저에 붙여넣습니다. 로그인이 끝나면 `/exit`로 나옵니다.
+
+**반드시 WSL(Ubuntu) 안에 설치하세요.** Windows에 따로 깐 `claude`는 이 앱이 쓰지 않습니다. 대화 기록도 WSL 안의 `~/.claude`에 저장됩니다.
+
+### 5단계. herdr 설치
+
+herdr는 AI 코딩 에이전트용 터미널 작업공간입니다. 이 앱의 `CLI로 보기`를 누르면 폴더마다 pane(분할 창)을 만들어 Claude를 이어서 보여 줍니다.
+
+```bash
+curl -fsSL https://herdr.dev/install.sh | sh
+```
+
+새 창을 열고 확인합니다.
+
+```bash
+herdr --version      # 0.9.3 에서 확인했습니다
+```
+
+Windows용 herdr가 아니라 **WSL 안에** 설치합니다. 나중에 업데이트는 `herdr update`입니다. 설치 방법이 더 필요하면 [herdr 설치 문서](https://herdr.dev/tui/docs/install/)를 보세요.
+
+### 6단계. 앱 받아서 실행
+
+```bash
+mkdir -p ~/project && cd ~/project
+git clone https://github.com/pyhu26-public/agent-moringgroove.git
+cd agent-moringgroove
+npm install
+npm start
+```
+
+- 저장소가 비공개라서 권한이 없으면 `Repository not found`가 나옵니다. 권한을 받은 뒤, 비밀번호를 물으면 GitHub 비밀번호 대신 **Personal access token**을 넣습니다. SSH 키를 쓴다면 `git@github.com:pyhu26-public/agent-moringgroove.git`로 받습니다.
+- 프로젝트는 **WSL 홈(`~`) 안에** 두세요. `/mnt/c/...` 아래에 받으면 느립니다.
+- 처음 `npm start`를 하면 화면용 코드를 만드느라 몇 초 더 걸립니다.
+- `Agent Moringgroove  http://localhost:4600  (WSL2 …)` 줄이 보이면 성공입니다.
+- **Windows 브라우저에서 `http://127.0.0.1:4600` 으로 접속합니다.** `localhost`는 Windows가 IPv6를 먼저 시도해서 느리거나 안 열릴 수 있습니다.
+- 서버를 켠 Ubuntu 창을 닫으면 서버도 꺼집니다. 포트를 바꾸려면 `PORT=4700 npm start`.
+- 이 안내는 Windows 11, WSL2 Ubuntu-20.04, 네트워크 mirrored 모드에서 확인했습니다. 서버는 `127.0.0.1`에만 열려서 같은 PC 밖에서는 접속할 수 없습니다(의도한 보안 설정).
+
+### 설치가 잘 됐는지 확인
+
+```bash
+node -v && claude --version && herdr --version
+npm test        # 마지막에 fail 0 이면 정상
+```
+
+`npm test`는 가짜 claude/herdr를 쓰므로 로그인 없이도 돌아갑니다. 부품 설치가 잘 됐는지 보는 용도입니다.
+
+실제로 쓰는 모습까지 확인하려면:
+1. 화면의 `＋ 루트 폴더`에 작업 폴더 경로를 넣습니다. WSL 폴더는 `/home/<이름>/project`, Windows 폴더는 `/mnt/c/Users/<이름>/...` 형식입니다.
+2. 폴더를 고르고 에이전트 탭에서 에이전트를 만든 뒤, 오른쪽 채팅에서 말을 걸어 봅니다.
+3. 폴더를 체크하고 `CLI로 보기`를 누릅니다. Windows Terminal 새 탭에 herdr가 열리면 끝입니다. 처음 여는 폴더에서는 Claude가 "이 폴더를 신뢰하시겠습니까?"를 한 번 묻습니다.
+
+### macOS / Linux
+
+- **macOS:** 1·2단계는 필요 없습니다(`node-pty`의 macOS용 완성품이 들어 있습니다). 3~6단계를 그대로 하세요. herdr는 `brew install herdr`로도 설치됩니다. `CLI로 보기`는 Terminal.app을 엽니다.
+- **Linux:** 1단계를 건너뛰고 2~6단계를 하세요. `CLI로 보기`는 `x-terminal-emulator`로 터미널을 열도록 되어 있지만, 직접 확인하지는 못했습니다.
+
+### 문제 해결
+
+| 증상 | 원인과 해결 |
+|---|---|
+| `npm install`이 `gyp ERR!`, `make: not found`, `python` 오류로 실패 | 컴파일 도구가 없습니다. 2단계를 하고 `rm -rf node_modules && npm install`. |
+| `SyntaxError`, `Unexpected token`, `engines` 경고 | Node가 낮습니다. `node -v`를 보고 3단계를 하세요. 새 창에서 `nvm use 22`도 해 봅니다. |
+| `claude` 또는 `herdr`가 `command not found` | 설치 폴더 `~/.local/bin`이 PATH에 없습니다. 먼저 새 Ubuntu 창을 엽니다. 그래도 안 되면 `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc` 후 새 창. |
+| 브라우저에서 `localhost`가 느리거나 안 열림 | `http://127.0.0.1:4600`으로 접속합니다. |
+| `127.0.0.1`도 안 열림 | PowerShell에서 `wsl --shutdown`을 하고 Ubuntu를 다시 열어 `npm start`. |
+| `EADDRINUSE` | 4600 포트를 다른 프로그램이 씁니다. `PORT=4700 npm start`. |
+| `CLI로 보기`에서 "herdr 서버를 시작하지 못했습니다" | WSL 안에서 herdr를 못 찾습니다. Ubuntu에서 `bash -lc 'herdr --version'`이 되는지 보세요. 안 되면 5단계와 PATH를 확인합니다. |
+| `CLI로 보기`가 Windows Terminal이 아닌 검은 콘솔 창으로 열림 | `wt.exe`가 없습니다. 1단계 6번대로 Windows Terminal을 설치합니다. 동작에는 문제가 없습니다. |
+| 채팅에서 로그인 오류 | WSL 안의 `claude`가 로그인되지 않았습니다. Ubuntu에서 `claude`를 실행해 로그인합니다. |
+| `git clone`이 `Repository not found` | GitHub 권한이나 로그인 문제입니다. 6단계 첫 항목을 보세요. |
+| `wsl --install` 중 `0x80370102` | 가상화가 꺼져 있습니다. 1단계 1번을 하세요. |
+
+### 업데이트
+
+```bash
+cd ~/project/agent-moringgroove
+git pull && npm install && npm run build
+herdr update
+claude update
+```
+
+### 고급: Windows에서 node를 직접 실행 (검증 못 함)
+
+권장하지 않습니다. 이 방식은 실제 Windows에서 아직 확인하지 못했습니다(PLAN.md 18장). Windows Terminal(`wt.exe`) → WSL → herdr로 이어지고, 채팅용 `claude`도 `wsl.exe`로 WSL 안에서 실행해 웹과 터미널이 같은 `~/.claude` 세션을 씁니다. WSL 배포판은 `data/config.json`의 `wslDistro`(예: `Ubuntu-20.04`)로 정하며, 비워 두면 WSL 기본 배포판입니다. `wsl.exe`는 로그인 셸(`bash -l`)로 실행하므로 `~/.local/bin`의 `claude`·`herdr`가 PATH에 잡힙니다.
 
 ## 사용
 1. `＋ 루트 폴더`로 루트를 등록 → 왼쪽 트리에서 폴더 선택

@@ -222,3 +222,37 @@ herdr 확인 결과 `workspace create`, `pane split`, `pane run`, `pane send-tex
 - UI: 채팅 헤더 에이전트 드롭다운 + `＋`, 에이전트 탭 칩 목록, 트리에 에이전트 행(2개 이상일 때)과 `+N` 배지, 선택한 에이전트는 폴더별로 기억.
 - 한계: 같은 폴더의 에이전트는 파일·MCP·스킬을 공유하므로 동시 수정 충돌은 막지 않고 안내 문구만 표시.
 - 검증: 단위 테스트(저장소 마이그레이션) + e2e(병렬 채팅·세션 분리·CLI targets·기본 지정·삭제) 포함 28개 통과, 실제 claude로 두 에이전트 동시 대화·에이전트별 터미널 확인.
+
+## 18. WSL2 검증과 수정 (2026-11-05)
+이 PC(Windows 11 + WSL2 `Ubuntu-20.04`, mirrored 네트워킹)에서 실제로 돌려 보며 확인했다. 서버를 WSL 안에서 실행하고 Windows 브라우저로 접속하는 방식이 기본 대상이다.
+
+**고친 문제**
+- "CLI로 보기"가 WSL에서 터미널을 열지 못함: WSL은 `linux`로 인식되어 `x-terminal-emulator`(없음)를 호출했고, 실패가 조용히 삼켜져 응답은 성공으로 나갔다. → `isWsl()` 추가, `cmd.exe /c start "" wt.exe new-tab … wsl.exe -d $WSL_DISTRO_NAME …`로 Windows Terminal을 연다(`wt.exe` 없으면 일반 콘솔 창).
+- `wsl.exe -- claude|herdr`가 `command not found`: 비로그인 셸이라 `~/.local/bin`이 PATH에 없다. → `wsl.exe -e bash -lc 'exec "$@"' _ cmd args…`로 변경(인자 JSON·따옴표·한글이 그대로 전달됨을 실측).
+- 기본 `wslDistro: 'Ubuntu'`가 이 PC에 없는 이름(`WSL_E_DISTRO_NOT_FOUND`). → 기본값을 빈 값(= WSL 기본 배포판, `-d` 생략)으로 변경.
+- `MORING_HERDR`가 `openTerminal`에는 적용되지 않던 것을 맞춤.
+
+**확인된 것(실측)**
+- WSL 안에서: 실제 claude Agent SDK 채팅(스트리밍·대화 복원·`/` 명령 118개), 터미널 탭(진짜 claude TUI), Windows Terminal 탭에서 herdr 실행(가짜 herdr로 호출 기록 확인), `/mnt/c` 탐색.
+- Windows → WSL 접속: `127.0.0.1:포트` 정상. `localhost`는 Windows가 `::1`을 먼저 시도해 약 0.2초 늦게 `127.0.0.1`로 넘어간다(curl.exe 0.23초 성공, PowerShell `Invoke-WebRequest`는 시간 초과). 코드가 아니라 안내 문제 → 시작 로그와 README에 `127.0.0.1` 안내.
+- Windows-native(`wsl.exe` 감싸기): `MORING_FAKE_PLATFORM=win32`로 WSL 안에서 진짜 `wsl.exe`를 호출해 SDK 채팅과 herdr 명령 확인.
+
+**남은 것**
+- 진짜 Windows에서 node를 직접 실행하는 경로(Windows용 node-pty/ConPTY, 인자 따옴표 처리, `\\wsl.localhost\…` 경로)는 미검증. 이 경로에서는 세션 파일을 볼 수 없어 대화 복원(`history`)이 비활성이다.
+- 진짜 herdr로 pane을 만드는 시험은 하지 않았다(사용 중인 워크스페이스가 있어 가짜 herdr로 대체). pane 분할 로직은 기존 E2E가 덮는다.
+
+## 19. 에디터 오류 수정: 줄바꿈을 덮는 장식 (2026-11-05)
+- 증상: 일부 문서(예: `docs/study/*.md`)를 열면 "Decorations that replace line breaks may not be specified via plugins"가 뜨고 라이브 프리뷰가 멈춘다.
+- 원인: `>`만 있는 빈 인용 줄에서 숨김 범위가 `to + 1`로 줄바꿈까지 포함되고, 다음 줄의 `> `와 이어 붙으며 줄바꿈을 덮었다. CodeMirror는 플러그인이 만든 장식이 줄바꿈을 덮는 것을 허용하지 않는다.
+- 수정: 인용 기호의 숨김 범위를 그 줄 안으로 제한, 숨김 범위를 줄 단위로 자르는 안전장치 추가(`packages/md-editor/src/editor.js`). 회귀 테스트 `packages/md-editor/test/live.test.mjs`(수정 전 코드에서는 실패함을 확인).
+- 검증: 프로젝트 안 docs 문서 1,606개를 같은 방식으로 검사해 줄바꿈을 덮는 장식 0건(수정 전에는 study 문서 2개에서 4건).
+
+## 20. 설치 안내 README 작성 (2026-11-05)
+- 목적: 처음 받는 사람이 WSL2 켜기부터 herdr·Claude Code 설치, 앱 실행까지 혼자 따라 할 수 있게 README 맨 앞을 "설치 방법"으로 바꿨다.
+- 확인한 사실(README에 반영):
+  - `node-pty`는 리눅스용 미리 빌드 파일이 없다(`prebuilds/`에 darwin·win32만). 새 WSL에서는 `build-essential`과 `python3`이 없으면 `npm install`이 컴파일에서 실패한다. macOS는 미리 빌드 파일이 있어 불필요.
+  - Ubuntu 20.04가 주는 기본 Node는 v10이다. 앱은 Node 20+가 필요하므로 nvm으로 22를 깔고 `nvm alias default 22`까지 해야 새 창에서도 유지된다.
+  - GitHub 저장소가 비공개(PRIVATE)다. 받는 사람은 접근 권한과 토큰(또는 SSH 키)이 필요하다.
+  - herdr 설치 명령은 `curl -fsSL https://herdr.dev/install.sh | sh`(Linux·macOS 공통, 바이너리는 `~/.local/bin`). herdr 공식 문서는 WSL을 따로 다루지 않아 리눅스 방식을 안내했다. 이 PC에는 `~/.local/bin/herdr`(0.9.3)가 WSL 안에서 동작 중이지만, 설치 스크립트를 새로 돌려 보지는 않았다. Claude Code 설치 명령도 공식 문서 기준이며 새로 돌려 보지 않았다.
+  - Claude Code 설치 명령은 `curl -fsSL https://claude.ai/install.sh | bash`. 유료 계정이 필요하다.
+- 검증 범위: Windows 11 + WSL2 Ubuntu-20.04(mirrored 네트워크)에서 확인. 기본(NAT) 네트워크 모드, Ubuntu 22.04/24.04 새 설치, 리눅스 데스크톱은 직접 확인하지 못했다.
