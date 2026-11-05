@@ -322,7 +322,7 @@ async function browseDialog(p) {
 async function boot() {
   const st = await api('/api/state');
   S.roots = st.roots; S.favs = st.favorites || []; S.kids.clear();
-  $('#plat').textContent = st.wsl ? `Windows · WSL(${st.wslDistro})` : st.platform;
+  $('#plat').textContent = st.wsl ? `Windows · WSL(${st.wslDistro || '기본'})` : st.inWsl ? `WSL2${st.distro ? `(${st.distro})` : ''}` : st.platform;
   for (const r of S.roots) S.open.add(r);
   await renderTree();
 }

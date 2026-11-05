@@ -7,8 +7,8 @@ import path from 'node:path';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mg-'));
 process.env.MORING_DATA = path.join(tmp, 'data');
 
-const { toWslPath, wrap } = await import('../lib/platform.mjs');
-const { gridPlan, q } = await import('../lib/terminal.mjs');
+const { toWslPath, wrap, isWsl } = await import('../lib/platform.mjs');
+const { gridPlan, q, openTerminal, setRunner, setLauncher } = await import('../lib/terminal.mjs');
 const { buildGraph } = await import('../lib/graph.mjs');
 const { extractJson } = await import('../lib/claude.mjs');
 const ms = await import('../lib/mcpskills.mjs');
@@ -18,13 +18,43 @@ test('windows path -> wsl path', () => {
   assert.equal(toWslPath('C:\\Users\\me\\proj x'), '/mnt/c/Users/me/proj x');
   assert.equal(toWslPath('/home/me'), '/home/me');
 });
-test('wsl wrap on windows', () => {
+test('wsl wrap on windows: login shell (PATH) + untouched argv', () => {
   process.env.MORING_FAKE_PLATFORM = 'win32';
   const w = wrap('claude', ['-p', 'hi'], { cwd: 'D:\\work\\a', distro: 'Ubuntu' });
   assert.equal(w.cmd, 'wsl.exe');
-  assert.deepEqual(w.args, ['-d', 'Ubuntu', '--cd', '/mnt/d/work/a', '--', 'claude', '-p', 'hi']);
+  // bash -l so ~/.local/bin (claude, herdr) is on PATH; -e + exec "$@" so no outer shell re-parses the arguments
+  assert.deepEqual(w.args, ['-d', 'Ubuntu', '--cd', '/mnt/d/work/a', '-e', 'bash', '-lc', 'exec "$@"', '_', 'claude', '-p', 'hi']);
+  assert.deepEqual(wrap('herdr', ['status'], {}).args, ['-e', 'bash', '-lc', 'exec "$@"', '_', 'herdr', 'status'], 'no distro -> WSL default distro, no -d');
   delete process.env.MORING_FAKE_PLATFORM;
   assert.equal(wrap('claude', ['x'], { cwd: '/a' }).cmd, 'claude');
+});
+test('isWsl: detection + override; not a Windows-native wrap', () => {
+  const keep = { ...process.env };
+  try {
+    process.env.MORING_FAKE_WSL = '1'; assert.equal(isWsl(), true);
+    process.env.MORING_FAKE_WSL = '0'; assert.equal(isWsl(), false);
+    delete process.env.MORING_FAKE_WSL;
+    process.env.MORING_FAKE_PLATFORM = 'darwin'; process.env.WSL_DISTRO_NAME = 'Ubuntu-20.04';
+    assert.equal(isWsl(), false, 'only a linux node can be "inside WSL"');
+    process.env.MORING_FAKE_PLATFORM = 'linux'; assert.equal(isWsl(), true);
+    delete process.env.WSL_DISTRO_NAME; delete process.env.WSL_INTEROP;
+    process.env.MORING_FAKE_WSL = '1';
+    assert.equal(wrap('claude', ['x'], { cwd: '/a' }).cmd, 'claude', 'inside WSL claude runs natively, no wsl.exe');
+  } finally { for (const k of ['MORING_FAKE_WSL', 'MORING_FAKE_PLATFORM', 'WSL_DISTRO_NAME', 'WSL_INTEROP']) { if (k in keep) process.env[k] = keep[k]; else delete process.env[k]; } }
+});
+test('openTerminal inside WSL: Windows Terminal via cmd.exe, back into this distro, login shell; falls back without wt.exe', async () => {
+  process.env.MORING_FAKE_WSL = '1'; process.env.WSL_DISTRO_NAME = 'Ubuntu-20.04';
+  const launched = [];
+  let wt = true;
+  setRunner(async (cmd, args) => { if (cmd === 'cmd.exe' && args.includes('where')) { if (wt) return 'C:\\wt.exe'; throw new Error('not found'); } throw new Error('unexpected ' + cmd); });
+  setLauncher((cmd, args, opts) => launched.push({ cmd, args, opts }));
+  try {
+    await openTerminal();
+    assert.deepEqual(launched[0], { cmd: 'cmd.exe', args: ['/c', 'start', '', 'wt.exe', 'new-tab', '--title', 'moringgroove', 'wsl.exe', '-d', 'Ubuntu-20.04', '-e', 'bash', '-lc', 'exec "$@"', '_', 'herdr'], opts: { cwd: '/mnt/c' } });
+    wt = false; await openTerminal();
+    assert.deepEqual(launched[1].args.slice(0, 4), ['/c', 'start', 'moringgroove', 'wsl.exe'], 'no Windows Terminal -> plain console window');
+    assert.equal(launched.length, 2);
+  } finally { delete process.env.MORING_FAKE_WSL; delete process.env.WSL_DISTRO_NAME; }
 });
 test('shell quoting', () => { assert.equal(q("a b'c"), `'a b'\\''c'`); assert.equal(q('--resume'), '--resume'); });
 test('grid plan gives n-1 splits, valid parents', () => {

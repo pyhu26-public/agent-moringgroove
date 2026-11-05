@@ -14,7 +14,7 @@ import { WebSocketServer } from 'ws';
 import * as ms from './lib/mcpskills.mjs';
 import * as rec from './lib/recommend.mjs';
 import { openFolders } from './lib/terminal.mjs';
-import { platform, isWin } from './lib/platform.mjs';
+import { platform, isWin, isWsl, wslDistroName } from './lib/platform.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4600);
@@ -65,7 +65,7 @@ async function api(req, res, url) {
   const m = req.method, p = url.pathname, q = url.searchParams;
   const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(m) ? await readBody(req) : {};
 
-  if (p === '/api/state') return json(res, 200, { roots: config.get().roots, favorites: favorites(), platform: platform(), wsl: isWin(), wslDistro: config.get().wslDistro });
+  if (p === '/api/state') return json(res, 200, { roots: config.get().roots, favorites: favorites(), platform: platform(), wsl: isWin(), wslDistro: config.get().wslDistro, inWsl: isWsl(), distro: wslDistroName() });
 
   if (p === '/api/favorites') {
     const c = config.get(), f = path.resolve(body.path || '');
@@ -228,5 +228,9 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  server.listen(PORT, HOST, () => console.log(`Agent Moringgroove  http://localhost:${PORT}  (${platform()})`));
+  server.listen(PORT, HOST, () => {
+    console.log(`Agent Moringgroove  http://localhost:${PORT}  (${isWsl() ? `WSL2 ${wslDistroName()}`.trim() : platform()})`);
+    // Windows resolves "localhost" to ::1 first, which does not reach a WSL server: slow start or a timeout in some clients
+    if (isWsl()) console.log(`  Windows 브라우저에서 localhost가 느리거나 안 열리면 http://127.0.0.1:${PORT} 로 접속하세요.`);
+  });
 }
