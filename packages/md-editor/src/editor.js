@@ -69,7 +69,7 @@ class CheckboxWidget extends WidgetType {
 const cls = c => Decoration.mark({ class: c });
 const lineDeco = c => Decoration.line({ class: c });
 
-function buildLive(view) {
+export function buildLive(view) { // exported for tests only (index.js does not re-export it)
   const ranges = [];
   const active = new Set();
   for (const r of view.state.selection.ranges) {
@@ -101,7 +101,7 @@ function buildLive(view) {
         const parent = n.node.parent?.name;
         if (name === 'HeaderMark') { const l = view.state.doc.lineAt(n.from); if (l.text.slice(0, n.to - l.from).trim().startsWith('#')) ranges.push({ from: n.from, to: Math.min(n.to + 1, l.to), v: hide }); }
         else if (name === 'EmphasisMark' || name === 'StrikethroughMark') ranges.push({ from: n.from, to: n.to, v: hide });
-        else if (name === 'QuoteMark') ranges.push({ from: n.from, to: n.to + 1, v: hide });
+        else if (name === 'QuoteMark') ranges.push({ from: n.from, to: Math.min(n.to + 1, view.state.doc.lineAt(n.from).to), v: hide }); // ">" + its space; an empty ">" line must not swallow the line break
         else if (name === 'CodeMark' && parent === 'InlineCode') ranges.push({ from: n.from, to: n.to, v: hide });
         else if ((name === 'LinkMark' || name === 'URL') && parent === 'Link') ranges.push({ from: n.from, to: n.to, v: hide });
       },
@@ -117,7 +117,13 @@ function buildLive(view) {
   const hides = ranges.filter(r => r.v === hide).sort((x, y) => x.from - y.from), merged = [];
   for (const h of hides) { const l = merged[merged.length - 1]; if (l && h.from <= l.to) l.to = Math.max(l.to, h.to); else merged.push({ from: h.from, to: h.to }); }
   const out = ranges.filter(r => r.v !== hide).map(r => (r.line ? r.v.range(r.from) : r.v.range(r.from, r.to)));
-  for (const h of merged) if (h.to > h.from) out.push(hide.range(h.from, h.to));
+  // CodeMirror throws "Decorations that replace line breaks may not be specified via plugins" and drops the whole
+  // plugin, so never let a hide span a line break: cut it per line.
+  for (const h of merged) for (let p = h.from; p < h.to;) {
+    const l = view.state.doc.lineAt(p), e = Math.min(h.to, l.to);
+    if (e > p) out.push(hide.range(p, e));
+    p = l.to + 1;
+  }
   return Decoration.set(out, true);
 }
 const livePreview = ViewPlugin.fromClass(class {
