@@ -152,6 +152,70 @@ npm test        # 마지막에 fail 0 이면 정상
 - **macOS:** 1·2단계는 필요 없습니다(`node-pty`의 macOS용 완성품이 들어 있습니다). 3~6단계를 그대로 하세요. herdr는 `brew install herdr`로도 설치됩니다. `CLI로 보기`는 Terminal.app을 엽니다.
 - **Linux:** 1단계를 건너뛰고 2~6단계를 하세요. `CLI로 보기`는 `x-terminal-emulator`로 터미널을 열도록 되어 있지만, 직접 확인하지는 못했습니다.
 
+### Windows 로그온 때 자동 실행 (선택, WSL2)
+
+**결론:** Windows에 로그인하면 서버가 저절로 켜지게 할 수 있습니다. 시작프로그램 폴더(쉬움)와 작업 스케줄러(켜고 끄고 상태를 보기 편함) 중 **하나만** 고르세요. 둘 다 같은 시작 스크립트 `scripts/start-wsl.sh`를 부릅니다.
+
+먼저 알아둘 것:
+- **로그인해야 켜집니다.** 로그인 없이 부팅 직후부터 돌리는 방법은 다루지 않습니다.
+- **`bash -lc 'npm start'`로 바로 실행하면 안 됩니다.** 화면 없이 도는 셸은 `~/.bashrc`의 nvm 줄에 닿기 전에 멈춰서 옛 node(Ubuntu 20.04는 v10)가 잡힙니다. 시작 스크립트는 nvm을 직접 불러와 `nvm alias default 22`로 정한 버전을 씁니다(3단계).
+- 숨겨진 `wsl.exe`가 계속 떠 있어서 WSL도 같이 살아 있습니다.
+- 이미 터미널에서 서버를 켜 둔 상태면 4600 포트가 겹칩니다. 먼저 끄세요.
+
+**준비 (공통).** Ubuntu에서 시작 스크립트가 되는지 먼저 확인합니다. 서버가 켜지면 `Ctrl+C`로 끕니다.
+
+```bash
+bash ~/project/agent-moringgroove/scripts/start-wsl.sh
+echo $HOME        # 아래 $Script에 쓸 내 리눅스 홈 경로
+```
+
+**1. 실행 파일(.vbs) 만들기.** Windows PowerShell(일반 권한)에서 실행합니다. `$Distro`는 `wsl -l -v`의 NAME, `$Script`의 홈 경로는 위 `echo $HOME` 결과로 바꿉니다.
+
+```powershell
+$Distro = 'Ubuntu-20.04'
+$Script = '/home/<내 리눅스 사용자>/project/agent-moringgroove/scripts/start-wsl.sh'
+$Vbs    = "$env:USERPROFILE\moringgroove-start.vbs"
+@"
+Set sh = CreateObject("Wscript.Shell")
+rc = sh.Run("wsl.exe -d $Distro -e bash $Script", 0, True)
+WScript.Quit rc
+"@ | Set-Content -Path $Vbs -Encoding ASCII
+```
+
+`0`은 창을 숨긴다는 뜻이고, `True`는 서버가 도는 동안 기다린다는 뜻입니다.
+
+**2-A. 시작프로그램 폴더 (쉬움).**
+
+```powershell
+Copy-Item $Vbs ([Environment]::GetFolderPath('Startup'))
+```
+
+해제하려면 `Win+R` → `shell:startup`에서 `moringgroove-start.vbs`를 지웁니다.
+
+**2-B. 작업 스케줄러.**
+
+```powershell
+$action   = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$Vbs`""
+$trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$trigger.Delay = 'PT30S'     # 로그온 30초 뒤에 시작
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+Register-ScheduledTask -TaskName 'Moringgroove' -Action $action -Trigger $trigger -Settings $settings -Description 'Agent Moringgroove 서버 자동 시작'
+```
+
+- `-ExecutionTimeLimit ([TimeSpan]::Zero)`는 "시간 제한 없음"입니다. 빼면 작업 스케줄러가 며칠 뒤 서버를 강제로 끝낼 수 있습니다.
+- "액세스가 거부되었습니다"가 나오면 PowerShell을 **관리자 권한으로** 다시 열어 실행합니다.
+
+```powershell
+Start-ScheduledTask      -TaskName Moringgroove     # 지금 켜기
+Get-ScheduledTask        -TaskName Moringgroove     # State가 Running이면 켜져 있음
+Stop-ScheduledTask       -TaskName Moringgroove     # 중지
+Unregister-ScheduledTask -TaskName Moringgroove -Confirm:$false   # 등록 해제
+```
+
+`Stop-ScheduledTask` 뒤에도 Ubuntu에 서버가 남아 있으면 `pkill -f 'node serve.mjs'`로 끕니다. 서버만 끄고 싶을 때도 이 명령을 씁니다.
+
+**확인한 범위.** 시작 스크립트는 `wsl.exe -e bash scripts/start-wsl.sh`(부팅 때와 같은, 환경이 빈 상태)로 띄워 Node 22로 서버가 뜨는 것을 확인했습니다. node가 낮으면 안내 문구와 함께 멈춥니다. `.vbs`와 작업 스케줄러 등록 명령은 직접 등록해 보지 못했습니다. 등록한 뒤 `Start-ScheduledTask`로 한 번 돌려 보고, 브라우저에서 `http://127.0.0.1:4600`이 열리는지 확인하세요.
+
 ### 문제 해결
 
 | 증상 | 원인과 해결 |
@@ -167,6 +231,7 @@ npm test        # 마지막에 fail 0 이면 정상
 | 채팅에서 로그인 오류 | WSL 안의 `claude`가 로그인되지 않았습니다. Ubuntu에서 `claude`를 실행해 로그인합니다. |
 | `git clone`이 `Repository not found` | GitHub 권한이나 로그인 문제입니다. 6단계 첫 항목을 보세요. |
 | `wsl --install` 중 `0x80370102` | 가상화가 꺼져 있습니다. 1단계 1번을 하세요. |
+| 로그온 자동 실행을 했는데 서버가 안 열림 | Ubuntu에서 `bash ~/project/agent-moringgroove/scripts/start-wsl.sh`가 되는지 먼저 봅니다. 그다음 `.vbs` 안의 배포판 이름(`wsl -l -v`)과 경로가 맞는지, 로그온 30초 뒤인지, 4600 포트를 다른 서버가 쓰고 있지 않은지 확인합니다. |
 
 ### 업데이트
 

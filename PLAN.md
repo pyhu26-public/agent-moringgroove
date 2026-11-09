@@ -256,3 +256,5 @@ herdr 확인 결과 `workspace create`, `pane split`, `pane run`, `pane send-tex
   - herdr 설치 명령은 `curl -fsSL https://herdr.dev/install.sh | sh`(Linux·macOS 공통, 바이너리는 `~/.local/bin`). herdr 공식 문서는 WSL을 따로 다루지 않아 리눅스 방식을 안내했다. 이 PC에는 `~/.local/bin/herdr`(0.9.3)가 WSL 안에서 동작 중이지만, 설치 스크립트를 새로 돌려 보지는 않았다. Claude Code 설치 명령도 공식 문서 기준이며 새로 돌려 보지 않았다.
   - Claude Code 설치 명령은 `curl -fsSL https://claude.ai/install.sh | bash`. 유료 계정이 필요하다.
 - 검증 범위: Windows 11 + WSL2 Ubuntu-20.04(mirrored 네트워크)에서 확인. 기본(NAT) 네트워크 모드, Ubuntu 22.04/24.04 새 설치, 리눅스 데스크톱은 직접 확인하지 못했다.
+- 로그온 자동 실행: `scripts/start-wsl.sh`를 추가하고 README에 시작프로그램 폴더·작업 스케줄러 방법을 적었다. 화면 없이 도는 셸은 `~/.bashrc`의 nvm 줄(대화형 판별문 아래)에 닿지 못해 옛 node가 잡힌다(이 PC: nvm 기본이 22인데도 `bash -lc 'node -v'`는 v10). 그래서 스크립트가 nvm을 직접 불러오고, Node 20 미만이면 안내하고 멈춘다.
+- 확인한 범위: `wsl.exe -e bash scripts/start-wsl.sh`(부팅 때와 같은 빈 환경)로 Node 22 서버 기동과 HTTP 200. 확인 못 한 것: `.vbs`와 작업 스케줄러 등록 명령. 시험용 작업 등록을 자동 승인 분류기가 "지속성 등록"으로 막아 이 PC에서는 실행하지 못했다. 그래서 README는 시험 못 했음을 명시했고, 문서의 `-ExecutionTimeLimit`은 작업 스케줄러의 기본 실행 시간 제한을 풀려는 것이다.
