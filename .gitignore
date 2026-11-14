@@ -1,7 +1,35 @@
+# 의존성
 node_modules/
+
+# 실행 중 생기는 상태 (config.json, agents.json, usage.json, prompts/)
 data/
-.playwright-mcp/
-*.png
-claude-talk-to-figma-mcp/
-packages/md-editor/dist/
+
+# 빌드 결과물 (npm run build로 다시 만들어진다)
 public/vendor/
+packages/md-editor/dist/
+
+# 환경변수 / 비밀값
+.env
+.env.*
+!.env.example
+
+# 로그
+*.log
+npm-debug.log*
+
+# Claude Code: 작업 트리와 개인 설정은 올리지 않는다
+.claude/worktrees/
+.claude/settings.local.json
+
+# 테스트 / 도구 부산물
+.playwright-mcp/
+claude-talk-to-figma-mcp/
+coverage/
+*.png
+
+# OS / 에디터
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
